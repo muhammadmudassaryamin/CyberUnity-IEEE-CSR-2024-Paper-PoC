@@ -2,6 +2,8 @@
 
 Cybersecurity threats are evolving rapidly, necessitating the creation of new scenarios to address these emerging threats. Cyber Ranges offer a solution by providing a platform to practice against these evolving threats and develop mitigation strategies. However, it is becoming increasingly difficult for a single Cyber Range to generate scenarios that keep pace with such rapid changes. Cyber Range federation offers a potential solution by connecting multiple Cyber Ranges, enabling them to share data, scenarios, and run exercises in a unified manner. This federation allows a broader audience to participate in cybersecurity training and education, enhancing their understanding of evolving threats. In this paper, we focus on operational cybersecurity scenarios and how they can be federated within our simulation environment. These scenario models help us plan cybersecurity exercises for future use. This federation involves several algorithms for merging operational networks, identifying attack paths, and calculating potential outcomes of scenarios.
 
+Demo: [Link](https://muhammadmudassaryamin.github.io/CyberUnity-IEEE-CSR-2024-Paper-PoC/FNVA.html)
+
 # Features
 1. Network Visualization: Interactive network graph displaying nodes and edges, with tooltips showing node risk and vulnerabilities.
 2. Critical Node Analysis: Identifies the top 10 critical nodes based on betweenness centrality, visualized in a bar chart.
