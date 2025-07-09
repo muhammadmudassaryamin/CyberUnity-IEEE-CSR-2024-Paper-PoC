@@ -1,0 +1,1158 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Network Vulnerability Analyzer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.21.0/cytoscape.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        #network-graph { width: 100%; height: 400px; border: 1px solid #ccc; }
+        .chart-container { width: 100%; max-width: 600px; height: 300px; }
+        .collapsible-header { cursor: pointer; }
+        .collapsible-content { display: none; }
+        .collapsible-content.active { display: block; }
+        .spinner { display: none; border: 4px solid #f3f3f3; border-top: 4px solid #0074D9; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="bg-gray-100 p-4">
+    <div class="container mx-auto">
+        <h1 class="text-3xl font-bold mb-4">Federated Network Vulnerability Analyzer</h1>
+
+        <!-- File Inputs -->
+        <div class="mb-4">
+            <div class="collapsible-header bg-blue-500 text-white p-2 rounded">Upload JSON Files</div>
+            <div class="collapsible-content active p-4 bg-white rounded shadow">
+                <div class="flex flex-col gap-2">
+                    <div>
+                        <label class="block text-sm font-medium">Vulnerability Database (vulnerability_database.json)</label>
+                        <input type="file" id="vuln-db" accept=".json" class="border p-2 rounded w-full">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium">Network 1 (network1.json)</label>
+                        <input type="file" id="network1" accept=".json" class="border p-2 rounded w-full">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium">Network 2 (network2.json)</label>
+                        <input type="file" id="network2" accept=".json" class="border p-2 rounded w-full">
+                    </div>
+                    <button id="load-files" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 flex items-center">
+                        Load Files <span id="load-spinner" class="spinner ml-2"></span>
+                    </button>
+                </div>
+                <div id="file-error" class="text-red-500 mt-2 hidden"></div>
+                <div id="file-success" class="text-green-500 mt-2 hidden"></div>
+            </div>
+        </div>
+
+        <!-- Network Health Score -->
+        <div class="mb-4">
+            <div class="collapsible-header bg-blue-500 text-white p-2 rounded">Network Health</div>
+            <div class="collapsible-content p-4 bg-white rounded shadow">
+                <h2 class="text-xl font-semibold mb-2">Network Health Score</h2>
+                <canvas id="health-score-gauge" class="chart-container"></canvas>
+            </div>
+        </div>
+
+        <!-- Network Selector and Graph -->
+        <div class="mb-4">
+            <div class="collapsible-header bg-blue-500 text-white p-2 rounded">Network Visualization</div>
+            <div class="collapsible-content p-4 bg-white rounded shadow">
+                <label for="network-selector" class="block text-lg font-semibold">Select Network</label>
+                <select id="network-selector" class="border p-2 rounded w-full max-w-xs mb-4">
+                    <option value="Merged Network">Merged Network</option>
+                    <option value="Network 1">Network 1</option>
+                    <option value="Network 2">Network 2</option>
+                </select>
+                <div class="flex flex-col md:flex-row gap-4">
+                    <div class="md:w-1/2">
+                        <h2 class="text-xl font-semibold mb-2">Network Graph</h2>
+                        <div id="network-graph"></div>
+                    </div>
+                    <div class="md:w-1/2">
+                        <h2 class="text-xl font-semibold mb-2">Top Critical Nodes</h2>
+                        <canvas id="critical-nodes-chart" class="chart-container"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Automatic Attack Paths -->
+        <div class="mb-4">
+            <div class="collapsible-header bg-blue-500 text-white p-2 rounded">Automatic Attack Paths</div>
+            <div class="collapsible-content p-4 bg-white rounded shadow">
+                <h2 class="text-xl font-semibold mb-2">Top High-Risk Attack Paths</h2>
+                <div id="auto-attack-paths" class="mt-2"></div>
+            </div>
+        </div>
+
+        <!-- Manual Attack Paths -->
+        <div class="mb-4">
+            <div class="collapsible-header bg-blue-500 text-white p-2 rounded">Manual Attack Paths</div>
+            <div class="collapsible-content p-4 bg-white rounded shadow">
+                <h2 class="text-xl font-semibold mb-2">Find Attack Paths</h2>
+                <div class="flex gap-2">
+                    <select id="start-node" class="border p-2 rounded w-full max-w-xs">
+                        <option value="">Select Start Node</option>
+                    </select>
+                    <select id="end-node" class="border p-2 rounded w-full max-w-xs">
+                        <option value="">Select End Node</option>
+                    </select>
+                    <button id="find-paths-button" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Find Paths</button>
+                </div>
+                <div id="attack-paths-output" class="mt-2"></div>
+            </div>
+        </div>
+
+        <!-- Subnet Analysis -->
+        <div class="mb-4">
+            <div class="collapsible-header bg-blue-500 text-white p-2 rounded">Subnet Analysis</div>
+            <div class="collapsible-content p-4 bg-white rounded shadow">
+                <div class="flex flex-col md:flex-row gap-4">
+                    <div class="md:w-1/2">
+                        <h2 class="text-xl font-semibold mb-2">Average Risk by Subnet</h2>
+                        <canvas id="subnet-risk-chart" class="chart-container"></canvas>
+                    </div>
+                    <div class="md:w-1/2">
+                        <h2 class="text-xl font-semibold mb-2">Subnet Risk Correlation</h2>
+                        <canvas id="subnet-correlation-heatmap" class="chart-container"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Attack Simulation -->
+        <div class="mb-4">
+            <div class="collapsible-header bg-blue-500 text-white p-2 rounded">Attack Simulation</div>
+            <div class="collapsible-content p-4 bg-white rounded shadow">
+                <h2 class="text-xl font-semibold mb-2">Attack Simulation</h2>
+                <div class="flex gap-2">
+                    <input id="num-simulations" type="number" placeholder="Number of Simulations" value="100" class="border p-2 rounded">
+                    <input id="steps-per-simulation" type="number" placeholder="Steps per Simulation" value="10" class="border p-2 rounded">
+                    <button id="run-simulations-button" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 flex items-center">
+                        Run Simulations <span id="sim-spinner" class="spinner ml-2"></span>
+                    </button>
+                </div>
+                <canvas id="simulation-results-chart" class="chart-container mt-2"></canvas>
+            </div>
+        </div>
+
+        <!-- Patch Management -->
+        <div class="mb-4">
+            <div class="collapsible-header bg-blue-500 text-white p-2 rounded">Patch Management</div>
+            <div class="collapsible-content p-4 bg-white rounded shadow">
+                <h2 class="text-xl font-semibold mb-2">Patch Management</h2>
+                <div class="flex gap-2">
+                    <select id="node-selector" class="border p-2 rounded w-full max-w-xs">
+                        <option value="">Select Node</option>
+                    </select>
+                    <select id="vulnerability-selector" class="border p-2 rounded w-full max-w-xs">
+                        <option value="">Select Vulnerability</option>
+                    </select>
+                    <button id="apply-patch-button" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Apply Patch</button>
+                    <button id="rollback-patch-button" class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">Rollback Patch</button>
+                </div>
+                <div id="patch-status" class="mt-2"></div>
+                <h2 class="text-xl font-semibold mt-4 mb-2">Suggested Patches</h2>
+                <div id="suggested-patches" class="mt-2"></div>
+            </div>
+        </div>
+
+        <!-- Risk Clustering -->
+        <div class="mb-4">
+            <div class="collapsible-header bg-blue-500 text-white p-2 rounded">Risk Clustering</div>
+            <div class="collapsible-content p-4 bg-white rounded shadow">
+                <h2 class="text-xl font-semibold mb-2">Risk Clustering</h2>
+                <canvas id="risk-cluster-chart" class="chart-container"></canvas>
+            </div>
+        </div>
+
+        <!-- Merge Nodes -->
+        <div class="mb-4">
+            <div class="collapsible-header bg-blue-500 text-white p-2 rounded">Merge Nodes</div>
+            <div class="collapsible-content p-4 bg-white rounded shadow">
+                <h2 class="text-xl font-semibold mb-2">Merge Nodes</h2>
+                <div class="flex gap-2">
+                    <select id="node1-selector" class="border p-2 rounded w-full max-w-xs">
+                        <option value="">Select Node 1</option>
+                    </select>
+                    <select id="node2-selector" class="border p-2 rounded w-full max-w-xs">
+                        <option value="">Select Node 2</option>
+                    </select>
+                    <button id="merge-nodes-button" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Merge Nodes</button>
+                </div>
+                <div id="merge-status" class="mt-2"></div>
+            </div>
+        </div>
+
+        <!-- Export Report -->
+        <div class="mb-4">
+            <div class="collapsible-header bg-blue-500 text-white p-2 rounded">Export Analysis</div>
+            <div class="collapsible-content p-4 bg-white rounded shadow">
+                <h2 class="text-xl font-semibold mb-2">Export Analysis Report</h2>
+                <button id="export-report-button" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Download Report</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Utility: Debounce function to limit UI updates
+        function debounce(func, wait) {
+            let timeout;
+            return function (...args) {
+                clearTimeout(timeout);
+                timeout = setTimeout(() => func.apply(this, args), wait);
+            };
+        }
+
+        // NetworkX-like graph implementation
+        class Graph {
+            constructor() {
+                this.nodes = new Map();
+                this.edges = new Set();
+                this.pathCache = new Map(); // Cache for allSimplePaths
+            }
+            addNode(node, attrs = {}) {
+                this.nodes.set(node, { ...attrs });
+                this.pathCache.clear(); // Invalidate cache on node change
+            }
+            addEdge(source, target, attrs = {}) {
+                this.edges.add(JSON.stringify({ source, target, ...attrs }));
+                this.pathCache.clear(); // Invalidate cache on edge change
+            }
+            removeNode(node) {
+                this.nodes.delete(node);
+                this.edges = new Set([...this.edges].filter(edge => {
+                    const e = JSON.parse(edge);
+                    return e.source !== node && e.target !== node;
+                }));
+                this.pathCache.clear(); // Invalidate cache
+            }
+            getNode(node) {
+                return this.nodes.get(node) || {};
+            }
+            hasNode(node) {
+                return this.nodes.has(node);
+            }
+            neighbors(node) {
+                return [...this.edges]
+                    .map(e => JSON.parse(e))
+                    .filter(e => e.source === node)
+                    .map(e => e.target);
+            }
+            predecessors(node) {
+                return [...this.edges]
+                    .map(e => JSON.parse(e))
+                    .filter(e => e.target === node)
+                    .map(e => e.source);
+            }
+            allSimplePaths(source, target, maxLength = 10) {
+                const cacheKey = `${source}-${target}-${maxLength}`;
+                if (this.pathCache.has(cacheKey)) {
+                    return this.pathCache.get(cacheKey);
+                }
+                const paths = [];
+                const stack = [[source, [source]]];
+                while (stack.length > 0) {
+                    const [current, path] = stack.pop();
+                    if (path.length > maxLength) continue;
+                    if (current === target && path.length > 1) {
+                        paths.push(path);
+                        continue;
+                    }
+                    for (const neighbor of this.neighbors(current)) {
+                        if (!path.includes(neighbor)) {
+                            stack.push([neighbor, [...path, neighbor]]);
+                        }
+                    }
+                }
+                this.pathCache.set(cacheKey, paths);
+                return paths;
+            }
+            betweennessCentrality() {
+                const centrality = new Map();
+                for (const node of this.nodes.keys()) {
+                    centrality.set(node, 0);
+                }
+                const nodes = [...this.nodes.keys()];
+                for (let i = 0; i < nodes.length; i++) {
+                    for (let j = i + 1; j < nodes.length; j++) {
+                        const source = nodes[i];
+                        const target = nodes[j];
+                        const paths = this.allSimplePaths(source, target);
+                        if (paths.length === 0) continue;
+                        for (const node of nodes) {
+                            if (node === source || node === target) continue;
+                            const count = paths.filter(path => path.includes(node)).length;
+                            centrality.set(node, centrality.get(node) + count / paths.length);
+                        }
+                    }
+                }
+                return centrality;
+            }
+        }
+
+        class AdvancedNetworkVulnerabilityAnalyzer {
+            constructor() {
+                this.graph = new Graph();
+                this.vulnerabilityDatabase = {};
+                this.subnets = new Map();
+                this.networks = new Map();
+                this.attackSimulations = {};
+                this.patchHistory = new Map();
+                this.mergedNodes = new Map();
+            }
+
+            async loadVulnerabilityDatabase(file) {
+                try {
+                    const text = await file.text();
+                    const data = JSON.parse(text);
+                    if (!Object.keys(data).every(key => data[key].cvss_score !== undefined)) {
+                        throw new Error("Vulnerability database must include cvss_score for each vulnerability");
+                    }
+                    this.vulnerabilityDatabase = data;
+                } catch (e) {
+                    throw new Error(`Invalid vulnerability database JSON: ${e.message}`);
+                }
+            }
+
+            async loadNetwork(file, networkName) {
+                try {
+                    const text = await file.text();
+                    const data = JSON.parse(text);
+                    if (!data.nodes || !Array.isArray(data.nodes) || !data.edges || !Array.isArray(data.edges)) {
+                        throw new Error("Network JSON must contain 'nodes' and 'edges' arrays");
+                    }
+                    const network = new Graph();
+                    const networkSubnets = new Map();
+                    for (const node of data.nodes) {
+                        if (!node.id) throw new Error("Each node must have an 'id' field");
+                        network.addNode(node.id, node);
+                        if (!networkSubnets.has(node.subnet)) {
+                            networkSubnets.set(node.subnet || 'unknown', new Set());
+                        }
+                        networkSubnets.get(node.subnet || 'unknown').add(node.id);
+                    }
+                    for (const edge of data.edges) {
+                        if (!edge.source || !edge.target) throw new Error("Each edge must have 'source' and 'target' fields");
+                        if (network.hasNode(edge.source) && network.hasNode(edge.target)) {
+                            network.addEdge(edge.source, edge.target, edge);
+                        }
+                    }
+                    this.networks.set(networkName, { network, subnets: networkSubnets });
+                } catch (e) {
+                    throw new Error(`Invalid JSON for ${networkName}: ${e.message}`);
+                }
+            }
+
+            mergeNetworks() {
+                this.graph = new Graph();
+                this.subnets = new Map();
+                if (this.networks.size === 0) {
+                    throw new Error("No networks loaded to merge");
+                }
+                for (const { network, subnets } of this.networks.values()) {
+                    for (const [node, attrs] of network.nodes) {
+                        if (!this.graph.hasNode(node)) {
+                            this.graph.addNode(node, { ...attrs });
+                        } else {
+                            const existing = this.graph.getNode(node);
+                            this.graph.addNode(node, {
+                                ...existing,
+                                vulnerabilities: [...new Set([...(existing.vulnerabilities || []), ...(attrs.vulnerabilities || [])])]
+                            });
+                        }
+                    }
+                    for (const edge of network.edges) {
+                        const { source, target } = JSON.parse(edge);
+                        if (this.graph.hasNode(source) && this.graph.hasNode(target)) {
+                            this.graph.addEdge(source, target);
+                        }
+                    }
+                    for (const [subnet, nodes] of subnets) {
+                        if (!this.subnets.has(subnet)) {
+                            this.subnets.set(subnet, new Set());
+                        }
+                        this.subnets.get(subnet).add(...nodes);
+                    }
+                }
+            }
+
+            mergeNodes(node1, node2) {
+                if (!this.graph.hasNode(node1)) throw new Error(`Node '${node1}' does not exist`);
+                if (!this.graph.hasNode(node2)) throw new Error(`Node '${node2}' does not exist`);
+                if (node1 === node2) throw new Error("Cannot merge a node with itself");
+
+                const newNode = `${node1}_${node2}`;
+                const attrs1 = this.graph.getNode(node1);
+                const attrs2 = this.graph.getNode(node2);
+                const combinedAttrs = {
+                    type: attrs1.type || attrs2.type || '',
+                    subnet: attrs1.subnet || attrs2.subnet || 'unknown',
+                    vulnerabilities: [...new Set([...(attrs1.vulnerabilities || []), ...(attrs2.vulnerabilities || [])])]
+                };
+                this.graph.addNode(newNode, combinedAttrs);
+
+                for (const pred of this.graph.predecessors(node1)) {
+                    this.graph.addEdge(pred, newNode);
+                }
+                for (const pred of this.graph.predecessors(node2)) {
+                    this.graph.addEdge(pred, newNode);
+                }
+                for (const succ of this.graph.neighbors(node1)) {
+                    this.graph.addEdge(newNode, succ);
+                }
+                for (const succ of this.graph.neighbors(node2)) {
+                    this.graph.addEdge(newNode, succ);
+                }
+
+                this.graph.removeNode(node1);
+                this.graph.removeNode(node2);
+
+                for (const [subnet, nodes] of this.subnets) {
+                    if (nodes.has(node1) || nodes.has(node2)) {
+                        nodes.delete(node1);
+                        nodes.delete(node2);
+                        nodes.add(newNode);
+                    }
+                }
+
+                this.mergedNodes.set(newNode, [node1, node2]);
+                return newNode;
+            }
+
+            calculateNodeRisk(node, graph) {
+                const vulnerabilities = graph.getNode(node).vulnerabilities || [];
+                return vulnerabilities.reduce((sum, vuln) => sum + (this.vulnerabilityDatabase[vuln]?.cvss_score || 0), 0);
+            }
+
+            calculateNetworkHealthScore(graph) {
+                const nodes = [...graph.nodes.keys()];
+                if (nodes.length === 0) return 0;
+                const avgRisk = nodes.reduce((sum, node) => sum + this.calculateNodeRisk(node, graph), 0) / nodes.length;
+                const vulnCount = nodes.reduce((sum, node) => sum + (graph.getNode(node).vulnerabilities?.length || 0), 0);
+                const centrality = this.identifyCriticalNodes(graph);
+                const maxCentrality = Math.max(...centrality.map(([_, c]) => c), 1);
+                const normalizedRisk = avgRisk / 10; // CVSS scores are 0-10
+                const normalizedVulnCount = vulnCount / (nodes.length * 5); // Assume max 5 vulns per node
+                const normalizedCentrality = maxCentrality / (nodes.length || 1);
+                return Math.max(0, 100 - (normalizedRisk * 40 + normalizedVulnCount * 30 + normalizedCentrality * 30));
+            }
+
+            findAttackPaths(startNode, endNode, graph, maxLength = 10) {
+                if (!graph.hasNode(startNode) || !graph.hasNode(endNode)) return [];
+                const paths = graph.allSimplePaths(startNode, endNode, maxLength);
+                return paths
+                    .map(path => ({
+                        path,
+                        risk: path.reduce((sum, node) => sum + this.calculateNodeRisk(node, graph), 0)
+                    }))
+                    .sort((a, b) => b.risk - a.risk);
+            }
+
+            findTopAttackPaths(graph, maxPaths = 5) {
+                const nodes = [...graph.nodes.keys()];
+                const paths = [];
+                for (let i = 0; i < nodes.length; i++) {
+                    for (let j = i + 1; j < nodes.length; j++) {
+                        const start = nodes[i];
+                        const end = nodes[j];
+                        const pathSet = this.findAttackPaths(start, end, graph);
+                        paths.push(...pathSet);
+                    }
+                }
+                return paths.sort((a, b) => b.risk - a.risk).slice(0, maxPaths);
+            }
+
+            suggestPatches(graph, maxSuggestions = 5) {
+                const criticality = this.identifyCriticalNodes(graph);
+                const suggestions = [];
+                for (const [node, centrality] of criticality) {
+                    const nodeData = graph.getNode(node);
+                    const vulnerabilities = nodeData.vulnerabilities || [];
+                    for (const vuln of vulnerabilities) {
+                        const cvss = this.vulnerabilityDatabase[vuln]?.cvss_score || 0;
+                        suggestions.push({
+                            node,
+                            vulnerability: vuln,
+                            cvssScore: cvss,
+                            centrality,
+                            impact: cvss * centrality
+                        });
+                    }
+                }
+                return suggestions.sort((a, b) => b.impact - a.impact).slice(0, maxSuggestions);
+            }
+
+            identifyCriticalNodes(graph) {
+                return [...this.graph.betweennessCentrality().entries()].sort((a, b) => b[1] - a[1]);
+            }
+
+            simulateAttack(startNode, numSteps, graph) {
+                if (!graph.hasNode(startNode)) return [];
+                let currentNode = startNode;
+                const path = [currentNode];
+                for (let i = 0; i < numSteps; i++) {
+                    const neighbors = graph.neighbors(currentNode);
+                    if (!neighbors.length) break;
+                    currentNode = neighbors[Math.floor(Math.random() * neighbors.length)];
+                    path.push(currentNode);
+                }
+                return path;
+            }
+
+            getNetworkData(graph, subnets) {
+                const nodes = [...graph.nodes.keys()].map(node => {
+                    const risk = this.calculateNodeRisk(node, graph);
+                    return {
+                        data: { id: node, label: node, risk, vulnerabilities: graph.getNode(node).vulnerabilities?.join(', ') || 'None' },
+                        classes: subnets.get(graph.getNode(node).subnet) ? graph.getNode(node).subnet : 'unknown'
+                    };
+                });
+                const edges = [...graph.edges].map(edge => {
+                    const e = JSON.parse(edge);
+                    return { data: { source: e.source, target: e.target } };
+                });
+                return { nodes, edges };
+            }
+
+            runAttackSimulation(numSimulations, stepsPerSimulation, graph) {
+                const results = [];
+                const nodes = [...graph.nodes.keys()];
+                if (nodes.length === 0) return results;
+                for (let i = 0; i < numSimulations; i++) {
+                    const startNode = nodes[Math.floor(Math.random() * nodes.length)];
+                    results.push(this.simulateAttack(startNode, stepsPerSimulation, graph));
+                }
+                return results;
+            }
+
+            analyzeAttackSimulations(simulations) {
+                const nodeFrequency = new Map();
+                for (const path of simulations) {
+                    for (const node of path) {
+                        nodeFrequency.set(node, (nodeFrequency.get(node) || 0) + 1);
+                    }
+                }
+                return [...nodeFrequency.entries()].sort((a, b) => b[1] - a[1]);
+            }
+
+            applyPatch(node, vulnerability, graph) {
+                const nodeData = graph.getNode(node);
+                if (nodeData.vulnerabilities?.includes(vulnerability)) {
+                    nodeData.vulnerabilities = nodeData.vulnerabilities.filter(v => v !== vulnerability);
+                    if (!this.patchHistory.has(node)) this.patchHistory.set(node, []);
+                    this.patchHistory.get(node).push(vulnerability);
+                    graph.addNode(node, nodeData);
+                }
+            }
+
+            rollbackPatch(node, vulnerability, graph) {
+                if (this.patchHistory.get(node)?.includes(vulnerability)) {
+                    const nodeData = graph.getNode(node);
+                    nodeData.vulnerabilities = [...(nodeData.vulnerabilities || []), vulnerability];
+                    this.patchHistory.set(node, this.patchHistory.get(node).filter(v => v !== vulnerability));
+                    graph.addNode(node, nodeData);
+                }
+            }
+
+            clusterNodesByRisk(graph, nClusters = 3) {
+                const nodeRisks = [...graph.nodes.keys()].map(node => this.calculateNodeRisk(node, graph));
+                if (nodeRisks.length === 0) return new Map();
+                const clusters = kmeans(nodeRisks, Math.min(nClusters, nodeRisks.length));
+                return new Map([...graph.nodes.keys()].map((node, i) => [node, clusters[i]]));
+            }
+
+            calculateSubnetCorrelations(graph) {
+                const subnetRisks = new Map();
+                for (const node of graph.nodes.keys()) {
+                    const subnet = graph.getNode(node).subnet || 'unknown';
+                    const risk = this.calculateNodeRisk(node, graph);
+                    if (!subnetRisks.has(subnet)) subnetRisks.set(subnet, []);
+                    subnetRisks.get(subnet).push(risk);
+                }
+                const correlations = [];
+                const subnets = [...subnetRisks.keys()];
+                if (subnets.length < 2) return correlations;
+                for (let i = 0; i < subnets.length; i++) {
+                    for (let j = i + 1; j < subnets.length; j++) {
+                        const subnet1 = subnets[i];
+                        const subnet2 = subnets[j];
+                        const risks1 = subnetRisks.get(subnet1);
+                        const risks2 = subnetRisks.get(subnet2);
+                        const minLength = Math.min(risks1.length, risks2.length);
+                        let correlation = 0;
+                        if (minLength > 1) {
+                            correlation = pearsonCorrelation(risks1.slice(0, minLength), risks2.slice(0, minLength));
+                        }
+                        correlations.push({ subnet1, subnet2, correlation });
+                    }
+                }
+                return correlations;
+            }
+
+            generateReport(graph) {
+                const criticalNodes = this.identifyCriticalNodes(graph).slice(0, 5);
+                const topPaths = this.findTopAttackPaths(graph);
+                const suggestedPatches = this.suggestPatches(graph);
+                const healthScore = this.calculateNetworkHealthScore(graph);
+                return {
+                    timestamp: new Date().toISOString(),
+                    networkHealthScore: healthScore.toFixed(2),
+                    criticalNodes: criticalNodes.map(([node, centrality]) => ({
+                        node,
+                        centrality: centrality.toFixed(2),
+                        risk: this.calculateNodeRisk(node, graph).toFixed(2)
+                    })),
+                    topAttackPaths: topPaths.map(p => ({
+                        path: p.path,
+                        risk: p.risk.toFixed(2)
+                    })),
+                    suggestedPatches: suggestedPatches.map(s => ({
+                        node: s.node,
+                        vulnerability: s.vulnerability,
+                        cvssScore: s.cvssScore,
+                        impact: s.impact.toFixed(2)
+                    }))
+                };
+            }
+        }
+
+        // K-Means clustering implementation
+        function kmeans(data, k) {
+            if (data.length === 0 || k === 0) return new Array(data.length).fill(0);
+            const centroids = data.slice(0, k);
+            const assignments = new Array(data.length).fill(0);
+            for (let iter = 0; iter < 100; iter++) {
+                for (let i = 0; i < data.length; i++) {
+                    let minDist = Infinity;
+                    let cluster = 0;
+                    for (let j = 0; j < k; j++) {
+                        const dist = Math.abs(data[i] - centroids[j]);
+                        if (dist < minDist) {
+                            minDist = dist;
+                            cluster = j;
+                        }
+                    }
+                    assignments[i] = cluster;
+                }
+                const counts = new Array(k).fill(0);
+                const sums = new Array(k).fill(0);
+                for (let i = 0; i < data.length; i++) {
+                    sums[assignments[i]] += data[i];
+                    counts[assignments[i]]++;
+                }
+                for (let j = 0; j < k; j++) {
+                    if (counts[j] > 0) centroids[j] = sums[j] / counts[j];
+                }
+            }
+            return assignments;
+        }
+
+        // Pearson correlation coefficient
+        function pearsonCorrelation(x, y) {
+            const n = x.length;
+            if (n === 0) return 0;
+            const meanX = x.reduce((sum, v) => sum + v, 0) / n;
+            const meanY = y.reduce((sum, v) => sum + v, 0) / n;
+            let num = 0, denX = 0, denY = 0;
+            for (let i = 0; i < n; i++) {
+                const dx = x[i] - meanX;
+                const dy = y[i] - meanY;
+                num += dx * dy;
+                denX += dx * dx;
+                denY += dy * dy;
+            }
+            const denominator = Math.sqrt(denX * denY);
+            return denominator === 0 ? 0 : num / denominator;
+        }
+
+        // Initialize analyzer and UI components
+        const analyzer = new AdvancedNetworkVulnerabilityAnalyzer();
+        let cy = null;
+        let criticalNodesChart = null;
+        let subnetRiskChart = null;
+        let subnetCorrelationChart = null;
+        let simulationResultsChart = null;
+        let riskClusterChart = null;
+        let healthScoreChart = null;
+
+        function showError(message) {
+            const errorDiv = document.getElementById('file-error');
+            errorDiv.textContent = message;
+            errorDiv.classList.remove('hidden');
+            setTimeout(() => errorDiv.classList.add('hidden'), 5000);
+        }
+
+        function showSuccess(message) {
+            const successDiv = document.getElementById('file-success');
+            successDiv.textContent = message;
+            successDiv.classList.remove('hidden');
+            setTimeout(() => successDiv.classList.add('hidden'), 5000);
+        }
+
+        function showSpinner(id, show) {
+            document.getElementById(id).style.display = show ? 'block' : 'none';
+        }
+
+        async function loadFiles() {
+            showSpinner('load-spinner', true);
+            const vulnDb = document.getElementById('vuln-db').files[0];
+            const network1 = document.getElementById('network1').files[0];
+            const network2 = document.getElementById('network2').files[0];
+            if (!vulnDb || !network1 || !network2) {
+                showError("Please upload all three JSON files");
+                showSpinner('load-spinner', false);
+                return;
+            }
+            try {
+                await analyzer.loadVulnerabilityDatabase(vulnDb);
+                await analyzer.loadNetwork(network1, 'Network 1');
+                await analyzer.loadNetwork(network2, 'Network 2');
+                analyzer.mergeNetworks();
+                updateUI();
+                showSuccess("Files loaded and networks merged successfully");
+            } catch (e) {
+                showError(e.message);
+            } finally {
+                showSpinner('load-spinner', false);
+            }
+        }
+
+        function getSelectedGraph() {
+            const selectedNetwork = document.getElementById('network-selector').value;
+            if (selectedNetwork === 'Merged Network') {
+                return { graph: analyzer.graph, subnets: analyzer.subnets };
+            }
+            return analyzer.networks.get(selectedNetwork) || { graph: new Graph(), subnets: new Map() };
+        }
+
+        function updateNetworkGraph() {
+            const { graph, subnets } = getSelectedGraph();
+            const { nodes, edges } = analyzer.getNetworkData(graph, subnets);
+            const criticalNodes = new Set(analyzer.identifyCriticalNodes(graph).slice(0, 5).map(([node]) => node));
+            if (cy) cy.destroy();
+            cy = cytoscape({
+                container: document.getElementById('network-graph'),
+                elements: [...nodes, ...edges],
+                style: [
+                    {
+                        selector: 'node',
+                        style: {
+                            'label': 'data(label)',
+                            'background-color': ele => criticalNodes.has(ele.data('id')) ? '#FF4136' : '#0074D9',
+                            'width': 20,
+                            'height': 20
+                        }
+                    },
+                    { selector: 'edge', style: { 'width': 2, 'line-color': '#ccc', 'curve-style': 'bezier' } }
+                ],
+                layout: { name: 'cose', animate: true }
+            });
+            cy.on('mouseover', 'node', function (evt) {
+                const node = evt.target;
+                cy.nodes().style({ 'opacity': 0.3 });
+                node.style({ 'opacity': 1 });
+                const div = document.createElement('div');
+                div.className = 'absolute bg-white p-2 border shadow text-sm';
+                div.style.left = `${evt.renderedPosition.x + 10}px`;
+                div.style.top = `${evt.renderedPosition.y + 10}px`;
+                div.innerHTML = `Node: ${node.data('id')}<br>Risk: ${node.data('risk').toFixed(2)}<br>Vulnerabilities: ${node.data('vulnerabilities') || 'None'}`;
+                document.getElementById('network-graph').appendChild(div);
+                node.data('tooltip', div);
+            });
+            cy.on('mouseout', 'node', function (evt) {
+                cy.nodes().style({ 'opacity': 1 });
+                const div = evt.target.data('tooltip');
+                if (div) div.remove();
+            });
+        }
+
+        function updateCriticalNodesChart() {
+            const { graph } = getSelectedGraph();
+            const criticalNodes = analyzer.identifyCriticalNodes(graph).slice(0, 10);
+            const labels = criticalNodes.map(([node]) => node);
+            const data = criticalNodes.map(([_, centrality]) => centrality);
+            if (criticalNodesChart) criticalNodesChart.destroy();
+            criticalNodesChart = new Chart(document.getElementById('critical-nodes-chart'), {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Centrality',
+                        data,
+                        backgroundColor: 'rgba(0, 116, 217, 0.7)',
+                        borderColor: '#0074D9',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    animation: { duration: 1000 },
+                    plugins: { title: { display: true, text: 'Top 10 Critical Nodes' } },
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+        }
+
+        function updateSubnetCharts() {
+            const { graph } = getSelectedGraph();
+            const subnetRisks = new Map();
+            for (const node of graph.nodes.keys()) {
+                const subnet = graph.getNode(node).subnet || 'unknown';
+                const risk = analyzer.calculateNodeRisk(node, graph);
+                if (!subnetRisks.has(subnet)) subnetRisks.set(subnet, []);
+                subnetRisks.get(subnet).push(risk);
+            }
+            const avgRisks = [...subnetRisks.entries()].map(([subnet, risks]) => ({
+                subnet,
+                avgRisk: risks.length ? risks.reduce((sum, r) => sum + r, 0) / risks.length : 0
+            }));
+            if (subnetRiskChart) subnetRiskChart.destroy();
+            subnetRiskChart = new Chart(document.getElementById('subnet-risk-chart'), {
+                type: 'bar',
+                data: {
+                    labels: avgRisks.map(r => r.subnet),
+                    datasets: [{
+                        label: 'Average Risk',
+                        data: avgRisks.map(r => r.avgRisk),
+                        backgroundColor: 'rgba(0, 116, 217, 0.7)',
+                        borderColor: '#0074D9',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    animation: { duration: 1000 },
+                    plugins: { title: { display: true, text: 'Average Risk by Subnet' } },
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+
+            const correlations = analyzer.calculateSubnetCorrelations(graph);
+            if (subnetCorrelationChart) subnetCorrelationChart.destroy();
+            if (correlations.length === 0) {
+                document.getElementById('subnet-correlation-heatmap').innerHTML = '<p>No correlation data available</p>';
+                return;
+            }
+            const subnets = [...new Set(correlations.flatMap(r => [r.subnet1, r.subnet2]))];
+            const dataPoints = correlations.map(({ subnet1, subnet2, correlation }) => ({
+                x: subnets.indexOf(subnet1),
+                y: subnets.indexOf(subnet2),
+                v: correlation
+            })).concat(correlations.map(({ subnet1, subnet2, correlation }) => ({
+                x: subnets.indexOf(subnet2),
+                y: subnets.indexOf(subnet1),
+                v: correlation
+            }))).concat(subnets.map((s, i) => ({ x: i, y: i, v: 1 })));
+            subnetCorrelationChart = new Chart(document.getElementById('subnet-correlation-heatmap'), {
+                type: 'scatter',
+                data: {
+                    datasets: [{
+                        label: 'Correlation',
+                        data: dataPoints.map(p => ({ x: p.x, y: p.y })),
+                        backgroundColor: dataPoints.map(p => `rgba(0, 116, 217, ${Math.abs(p.v)})`),
+                        pointRadius: 10
+                    }]
+                },
+                options: {
+                    animation: { duration: 1000 },
+                    scales: {
+                        x: { type: 'category', labels: subnets, title: { display: true, text: 'Subnet' } },
+                        y: { type: 'category', labels: subnets.reverse(), title: { display: true, text: 'Subnet' } }
+                    },
+                    plugins: { title: { display: true, text: 'Subnet Risk Correlation' } }
+                }
+            });
+        }
+
+        function updateHealthScoreChart() {
+            const { graph } = getSelectedGraph();
+            const score = analyzer.calculateNetworkHealthScore(graph);
+            if (healthScoreChart) healthScoreChart.destroy();
+            healthScoreChart = new Chart(document.getElementById('health-score-gauge'), {
+                type: 'doughnut',
+                data: {
+                    labels: ['Health', 'Risk'],
+                    datasets: [{
+                        data: [score, 100 - score],
+                        backgroundColor: ['#28a745', '#FF4136'],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    circumference: 180,
+                    rotation: 270,
+                    cutout: '80%',
+                    plugins: {
+                        title: { display: true, text: `Network Health Score: ${score.toFixed(2)}/100` },
+                        tooltip: { enabled: true }
+                    }
+                }
+            });
+        }
+
+        function updateAutoAttackPaths() {
+            const { graph } = getSelectedGraph();
+            const paths = analyzer.findTopAttackPaths(graph);
+            const outputDiv = document.getElementById('auto-attack-paths');
+            outputDiv.innerHTML = paths.length
+                ? `<ul class="list-disc pl-5">${paths.map((p, i) => `
+                    <li class="flex items-center">
+                        Path ${i + 1} (Risk: ${p.risk.toFixed(2)}): ${p.path.join(' -> ')}
+                        <button class="ml-2 bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600 highlight-path" data-path="${JSON.stringify(p.path)}">Highlight</button>
+                    </li>`).join('')}</ul>`
+                : 'No high-risk attack paths found.';
+            document.querySelectorAll('.highlight-path').forEach(button => {
+                button.addEventListener('click', () => {
+                    const path = JSON.parse(button.dataset.path);
+                    cy.elements().style({ 'opacity': 0.3 });
+                    cy.nodes().filter(n => path.includes(n.data('id'))).style({ 'opacity': 1, 'background-color': '#FF4136' });
+                    cy.edges().filter(e => path.includes(e.data('source')) && path.includes(e.data('target'))).style({ 'opacity': 1, 'line-color': '#FF4136' });
+                    setTimeout(() => cy.elements().style({ 'opacity': 1, 'background-color': n => analyzer.identifyCriticalNodes(graph).slice(0, 5).map(([id]) => id).includes(n.data('id')) ? '#FF4136' : '#0074D9', 'line-color': '#ccc' }), 5000);
+                });
+            });
+        }
+
+        function updateSuggestedPatches() {
+            const { graph } = getSelectedGraph();
+            const suggestions = analyzer.suggestPatches(graph);
+            const outputDiv = document.getElementById('suggested-patches');
+            outputDiv.innerHTML = suggestions.length
+                ? `<ul class="list-disc pl-5">${suggestions.map(s => `
+                    <li>
+                        Patch ${s.vulnerability} on ${s.node} (Impact: ${s.impact.toFixed(2)})
+                        <button class="ml-2 bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600 apply-suggested-patch" data-node="${s.node}" data-vuln="${s.vulnerability}">Apply</button>
+                    </li>`).join('')}</ul>`
+                : 'No patch suggestions available.';
+            document.querySelectorAll('.apply-suggested-patch').forEach(button => {
+                button.addEventListener('click', () => {
+                    const node = button.dataset.node;
+                    const vulnerability = button.dataset.vuln;
+                    analyzer.applyPatch(node, vulnerability, graph);
+                    document.getElementById('patch-status').textContent = `Patch applied: ${vulnerability} on ${node}`;
+                    updateUI();
+                });
+            });
+        }
+
+        function updateRiskClusterChart() {
+            const { graph } = getSelectedGraph();
+            const clusters = analyzer.clusterNodesByRisk(graph);
+            const data = [...graph.nodes.keys()].map(node => ({
+                node,
+                risk: analyzer.calculateNodeRisk(node, graph),
+                cluster: clusters.get(node) || 0
+            }));
+            if (riskClusterChart) riskClusterChart.destroy();
+            riskClusterChart = new Chart(document.getElementById('risk-cluster-chart'), {
+                type: 'scatter',
+                data: {
+                    datasets: Array.from({ length: 3 }, (_, i) => ({
+                        label: `Cluster ${i}`,
+                        data: data.filter(d => d.cluster === i).map(d => ({ x: d.risk, y: i })),
+                        backgroundColor: ['#007bff', '#ff4444', '#28a745'][i]
+                    }))
+                },
+                options: {
+                    animation: { duration: 1000 },
+                    plugins: { title: { display: true, text: 'Node Risk Clusters' } },
+                    scales: {
+                        x: { title: { display: true, text: 'Risk Score' } },
+                        y: { title: { display: true, text: 'Cluster' } }
+                    }
+                }
+            });
+        }
+
+        function updateSelectors() {
+            const { graph } = getSelectedGraph();
+            const nodeSelector = document.getElementById('node-selector');
+            const vulnSelector = document.getElementById('vulnerability-selector');
+            const node1Selector = document.getElementById('node1-selector');
+            const node2Selector = document.getElementById('node2-selector');
+            const startNodeSelector = document.getElementById('start-node');
+            const endNodeSelector = document.getElementById('end-node');
+            const nodeOptions = '<option value="">Select Node</option>' + [...graph.nodes.keys()].map(n => `<option value="${n}">${n}</option>`).join('');
+            const startNodeOptions = '<option value="">Select Start Node</option>' + [...graph.nodes.keys()].map(n => `<option value="${n}">${n}</option>`).join('');
+            const endNodeOptions = '<option value="">Select End Node</option>' + [...graph.nodes.keys()].map(n => `<option value="${n}">${n}</option>`).join('');
+            nodeSelector.innerHTML = nodeOptions;
+            vulnSelector.innerHTML = '<option value="">Select Vulnerability</option>' + Object.keys(analyzer.vulnerabilityDatabase).map(v => `<option value="${v}">${v}</option>`).join('');
+            node1Selector.innerHTML = '<option value="">Select Node 1</option>' + [...graph.nodes.keys()].map(n => `<option value="${n}">${n}</option>`).join('');
+            node2Selector.innerHTML = '<option value="">Select Node 2</option>' + [...graph.nodes.keys()].map(n => `<option value="${n}">${n}</option>`).join('');
+            startNodeSelector.innerHTML = startNodeOptions;
+            endNodeSelector.innerHTML = endNodeOptions;
+        }
+
+        const debouncedUpdateUI = debounce(() => {
+            updateNetworkGraph();
+            updateCriticalNodesChart();
+            updateSubnetCharts();
+            updateRiskClusterChart();
+            updateHealthScoreChart();
+            updateAutoAttackPaths();
+            updateSuggestedPatches();
+            updateSelectors();
+        }, 300);
+
+        function updateUI() {
+            try {
+                debouncedUpdateUI();
+            } catch (e) {
+                showError(`UI update failed: ${e.message}`);
+            }
+        }
+
+        document.getElementById('load-files').addEventListener('click', loadFiles);
+
+        document.getElementById('network-selector').addEventListener('change', updateUI);
+
+        document.getElementById('find-paths-button').addEventListener('click', () => {
+            const startNode = document.getElementById('start-node').value;
+            const endNode = document.getElementById('end-node').value;
+            if (!startNode || !endNode) {
+                document.getElementById('attack-paths-output').innerHTML = 'Select start and end nodes.';
+                return;
+            }
+            const { graph } = getSelectedGraph();
+            const paths = analyzer.findAttackPaths(startNode, endNode, graph);
+            document.getElementById('attack-paths-output').innerHTML = paths.length
+                ? `<ul class="list-disc pl-5">${paths.slice(0, 5).map((p, i) => `<li>Path ${i + 1} (Risk: ${p.risk.toFixed(2)}): ${p.path.join(' -> ')}</li>`).join('')}</ul>`
+                : `No paths found from ${startNode} to ${endNode}.`;
+        });
+
+        document.getElementById('run-simulations-button').addEventListener('click', () => {
+            showSpinner('sim-spinner', true);
+            const numSimulations = parseInt(document.getElementById('num-simulations').value) || 100;
+            const stepsPerSimulation = parseInt(document.getElementById('steps-per-simulation').value) || 10;
+            const { graph } = getSelectedGraph();
+            const simulations = analyzer.runAttackSimulation(numSimulations, stepsPerSimulation, graph);
+            const results = analyzer.analyzeAttackSimulations(simulations).slice(0, 20);
+            if (simulationResultsChart) simulationResultsChart.destroy();
+            simulationResultsChart = new Chart(document.getElementById('simulation-results-chart'), {
+                type: 'bar',
+                data: {
+                    labels: results.map(r => r[0]),
+                    datasets: [{
+                        label: 'Frequency',
+                        data: results.map(r => r[1]),
+                        backgroundColor: 'rgba(0, 116, 217, 0.7)',
+                        borderColor: '#0074D9',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    animation: { duration: 1000 },
+                    plugins: { title: { display: true, text: 'Top 20 Nodes in Attack Simulations' } },
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+            showSpinner('sim-spinner', false);
+        });
+
+        document.getElementById('apply-patch-button').addEventListener('click', () => {
+            const node = document.getElementById('node-selector').value;
+            const vulnerability = document.getElementById('vulnerability-selector').value;
+            if (!node || !vulnerability) {
+                document.getElementById('patch-status').textContent = 'Select node and vulnerability.';
+                return;
+            }
+            const { graph } = getSelectedGraph();
+            analyzer.applyPatch(node, vulnerability, graph);
+            document.getElementById('patch-status').textContent = `Patch applied: ${vulnerability} on ${node}`;
+            updateUI();
+        });
+
+        document.getElementById('rollback-patch-button').addEventListener('click', () => {
+            const node = document.getElementById('node-selector').value;
+            const vulnerability = document.getElementById('vulnerability-selector').value;
+            if (!node || !vulnerability) {
+                document.getElementById('patch-status').textContent = 'Select node and vulnerability.';
+                return;
+            }
+            const { graph } = getSelectedGraph();
+            analyzer.rollbackPatch(node, vulnerability, graph);
+            document.getElementById('patch-status').textContent = `Patch rolled back: ${vulnerability} on ${node}`;
+            updateUI();
+        });
+
+        document.getElementById('merge-nodes-button').addEventListener('click', () => {
+            const node1 = document.getElementById('node1-selector').value;
+            const node2 = document.getElementById('node2-selector').value;
+            if (!node1 || !node2) {
+                document.getElementById('merge-status').textContent = 'Select two nodes to merge.';
+                return;
+            }
+            try {
+                const newNode = analyzer.mergeNodes(node1, node2);
+                document.getElementById('merge-status').textContent = `Nodes ${node1} and ${node2} merged into ${newNode}`;
+                updateUI();
+            } catch (e) {
+                document.getElementById('merge-status').textContent = e.message;
+            }
+        });
+
+        document.getElementById('export-report-button').addEventListener('click', () => {
+            const { graph } = getSelectedGraph();
+            const report = analyzer.generateReport(graph);
+            const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `network_analysis_report_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        });
+
+        // Collapsible sections
+        document.querySelectorAll('.collapsible-header').forEach(header => {
+            header.addEventListener('click', () => {
+                const content = header.nextElementSibling;
+                content.classList.toggle('active');
+            });
+        });
+
+        // Initialize with file upload section open
+        document.querySelector('.collapsible-content').classList.add('active');
+    </script>
+</body>
+</html>

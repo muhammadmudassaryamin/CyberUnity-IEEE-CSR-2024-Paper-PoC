@@ -1,0 +1,62 @@
+{
+  "nodes": [
+    {
+      "id": "fw_external2",
+      "type": "firewall",
+      "subnet": "Perimeter",
+      "vulnerabilities": ["CVE-2021-40528"]
+    },
+    {
+      "id": "vpn_gateway",
+      "type": "network",
+      "subnet": "Perimeter",
+      "vulnerabilities": ["CVE-2021-22893", "CVE-2021-22894"]
+    },
+    {
+      "id": "web_server2",
+      "type": "server",
+      "subnet": "DMZ",
+      "vulnerabilities": ["CVE-2021-44228", "CVE-2021-41773"]
+    },
+    {
+      "id": "app_server2",
+      "type": "server",
+      "subnet": "Application",
+      "vulnerabilities": ["CVE-2021-26085", "CVE-2021-22204"]
+    },
+    {
+      "id": "db_server2",
+      "type": "database",
+      "subnet": "Database",
+      "vulnerabilities": ["CVE-2021-21973", "CVE-2021-27102"]
+    },
+    {
+      "id": "backup_server",
+      "type": "server",
+      "subnet": "Storage",
+      "vulnerabilities": ["CVE-2021-22941", "CVE-2021-20021"]
+    },
+    {
+      "id": "mgmt_workstation",
+      "type": "client",
+      "subnet": "Management",
+      "vulnerabilities": ["CVE-2021-1675", "CVE-2021-34527"]
+    },
+    {
+      "id": "employee_workstation",
+      "type": "client",
+      "subnet": "Office",
+      "vulnerabilities": ["CVE-2021-40444", "CVE-2021-31166"]
+    }
+  ],
+  "edges": [
+    {"source": "fw_external2", "target": "vpn_gateway"},
+    {"source": "fw_external2", "target": "web_server2"},
+    {"source": "web_server2", "target": "app_server2"},
+    {"source": "app_server2", "target": "db_server2"},
+    {"source": "db_server2", "target": "backup_server"},
+    {"source": "mgmt_workstation", "target": "backup_server"},
+    {"source": "employee_workstation", "target": "app_server2"},
+    {"source": "vpn_gateway", "target": "employee_workstation"}
+  ]
+}

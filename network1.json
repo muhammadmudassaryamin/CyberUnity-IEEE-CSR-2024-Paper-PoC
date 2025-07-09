@@ -1,0 +1,62 @@
+{
+  "nodes": [
+    {
+      "id": "fw_external1",
+      "type": "firewall",
+      "subnet": "Perimeter",
+      "vulnerabilities": ["CVE-2021-40528"]
+    },
+    {
+      "id": "load_balancer1",
+      "type": "network",
+      "subnet": "DMZ",
+      "vulnerabilities": ["CVE-2021-22986"]
+    },
+    {
+      "id": "web_server1",
+      "type": "server",
+      "subnet": "DMZ",
+      "vulnerabilities": ["CVE-2021-44228", "CVE-2021-42013"]
+    },
+    {
+      "id": "app_server1",
+      "type": "server",
+      "subnet": "Application",
+      "vulnerabilities": ["CVE-2021-26084", "CVE-2021-22205"]
+    },
+    {
+      "id": "db_server1",
+      "type": "database",
+      "subnet": "Database",
+      "vulnerabilities": ["CVE-2021-21972", "CVE-2021-27101"]
+    },
+    {
+      "id": "file_server1",
+      "type": "server",
+      "subnet": "Storage",
+      "vulnerabilities": ["CVE-2020-1472", "CVE-2021-36934"]
+    },
+    {
+      "id": "ad_server1",
+      "type": "server",
+      "subnet": "Management",
+      "vulnerabilities": ["CVE-2020-1472", "CVE-2021-42287"]
+    },
+    {
+      "id": "workstation1",
+      "type": "client",
+      "subnet": "Office",
+      "vulnerabilities": ["CVE-2021-40444", "CVE-2021-31166"]
+    }
+  ],
+  "edges": [
+    {"source": "fw_external1", "target": "load_balancer1"},
+    {"source": "load_balancer1", "target": "web_server1"},
+    {"source": "web_server1", "target": "app_server1"},
+    {"source": "app_server1", "target": "db_server1"},
+    {"source": "app_server1", "target": "file_server1"},
+    {"source": "ad_server1", "target": "db_server1"},
+    {"source": "ad_server1", "target": "file_server1"},
+    {"source": "workstation1", "target": "file_server1"}
+  ]
+}
