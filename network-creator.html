@@ -1,0 +1,566 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Graph Creator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.21.0/cytoscape.min.js"></script>
+    <style>
+        #network-graph { width: 100%; height: 500px; border: 1px solid #ccc; }
+        .collapsible-header { cursor: pointer; }
+        .collapsible-content { display: none; }
+        .collapsible-content.active { display: block; }
+        .spinner { display: none; border: 4px solid #f3f3f3; border-top: 4px solid #0074D9; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="bg-gray-100 p-4">
+    <div class="container mx-auto">
+        <h1 class="text-3xl font-bold mb-4">Network Graph Creator</h1>
+        <p class="mb-4 text-gray-700">Create or edit network graphs for the Advanced Network Vulnerability Analyzer. Upload a vulnerability database to populate vulnerabilities, then add/edit nodes and edges manually or generate a random network with custom subnets. Export the network as a JSON file compatible with the analyzer.</p>
+
+        <!-- Load Vulnerability Database -->
+        <div class="mb-4">
+            <div class="collapsible-header bg-blue-500 text-white p-2 rounded">Load Vulnerability Database</div>
+            <div class="collapsible-content active p-4 bg-white rounded shadow">
+                <div class="flex flex-col gap-2">
+                    <label class="block text-sm font-medium">Vulnerability Database (vulnerability_database.json)</label>
+                    <input type="file" id="vuln-db" accept=".json" class="border p-2 rounded w-full">
+                    <button id="load-vuln-db" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 flex items-center">
+                        Load Database <span id="vuln-spinner" class="spinner ml-2"></span>
+                    </button>
+                </div>
+                <div id="vuln-error" class="text-red-500 mt-2 hidden"></div>
+                <div id="vuln-success" class="text-green-500 mt-2 hidden"></div>
+            </div>
+        </div>
+
+        <!-- Generate Network -->
+        <div class="mb-4">
+            <div class="collapsible-header bg-blue-500 text-white p-2 rounded">Generate Network</div>
+            <div class="collapsible-content p-4 bg-white rounded shadow">
+                <h2 class="text-xl font-semibold mb-2">Generate Random Network</h2>
+                <div class="flex flex-col gap-2">
+                    <label class="block text-sm font-medium">Number of Nodes</label>
+                    <input id="num-nodes" type="number" min="1" max="100" value="5" class="border p-2 rounded w-full max-w-xs">
+                    <label class="block text-sm font-medium">Number of Edges</label>
+                    <input id="num-edges" type="number" min="0" max="1000" value="4" class="border p-2 rounded w-full max-w-xs">
+                    <label class="block text-sm font-medium">Number of Vulnerabilities per Node</label>
+                    <input id="num-vulns" type="number" min="0" max="10" value="2" class="border p-2 rounded w-full max-w-xs">
+                    <label class="block text-sm font-medium">Subnets (comma-separated, e.g., subnetA,subnetB)</label>
+                    <input id="subnets" type="text" value="subnetA,subnetB,subnetC,subnetD,unknown" class="border p-2 rounded w-full max-w-xs">
+                    <button id="generate-network" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 flex items-center">
+                        Generate Network <span id="generate-spinner" class="spinner ml-2"></span>
+                    </button>
+                </div>
+                <div id="generate-status" class="mt-2 text-gray-700"></div>
+            </div>
+        </div>
+
+        <!-- Load Network -->
+        <div class="mb-4">
+            <div class="collapsible-header bg-blue-500 text-white p-2 rounded">Load Network</div>
+            <div class="collapsible-content p-4 bg-white rounded shadow">
+                <div class="flex flex-col gap-2">
+                    <label class="block text-sm font-medium">Network File (network.json)</label>
+                    <input type="file" id="network-file" accept=".json" class="border p-2 rounded w-full">
+                    <button id="load-network" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 flex items-center">
+                        Load Network <span id="load-spinner" class="spinner ml-2"></span>
+                    </button>
+                </div>
+                <div id="file-error" class="text-red-500 mt-2 hidden"></div>
+                <div id="file-success" class="text-green-500 mt-2 hidden"></div>
+            </div>
+        </div>
+
+        <!-- Network Graph -->
+        <div class="mb-4">
+            <div class="collapsible-header bg-blue-500 text-white p-2 rounded">Network Visualization</div>
+            <div class="collapsible-content active p-4 bg-white rounded shadow">
+                <h2 class="text-xl font-semibold mb-2">Network Graph</h2>
+                <div id="network-graph"></div>
+            </div>
+        </div>
+
+        <!-- Add/Edit Node -->
+        <div class="mb-4">
+            <div class="collapsible-header bg-blue-500 text-white p-2 rounded">Add/Edit Node</div>
+            <div class="collapsible-content p-4 bg-white rounded shadow">
+                <h2 class="text-xl font-semibold mb-2">Add or Edit Node</h2>
+                <div class="flex flex-col gap-2">
+                    <select id="node-selector" class="border p-2 rounded w-full max-w-xs">
+                        <option value="">Select Node to Edit or Add New</option>
+                    </select>
+                    <input id="node-id" type="text" placeholder="Node ID (e.g., node1)" class="border p-2 rounded w-full max-w-xs">
+                    <input id="node-subnet" type="text" placeholder="Subnet (e.g., subnetA)" class="border p-2 rounded w-full max-w-xs">
+                    <select id="node-vulnerabilities" multiple class="border p-2 rounded w-full max-w-xs" size="4">
+                        <option value="">Select Vulnerabilities</option>
+                    </select>
+                    <input id="node-type" type="text" placeholder="Type (e.g., server)" class="border p-2 rounded w-full max-w-xs">
+                    <div class="flex gap-2">
+                        <button id="add-node" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Add/Update Node</button>
+                        <button id="delete-node" class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">Delete Node</button>
+                    </div>
+                </div>
+                <div id="node-status" class="mt-2 text-gray-700"></div>
+            </div>
+        </div>
+
+        <!-- Add Edge -->
+        <div class="mb-4">
+            <div class="collapsible-header bg-blue-500 text-white p-2 rounded">Add Edge</div>
+            <div class="collapsible-content p-4 bg-white rounded shadow">
+                <h2 class="text-xl font-semibold mb-2">Add Edge</h2>
+                <div class="flex gap-2">
+                    <select id="edge-source" class="border p-2 rounded w-full max-w-xs">
+                        <option value="">Select Source Node</option>
+                    </select>
+                    <select id="edge-target" class="border p-2 rounded w-full max-w-xs">
+                        <option value="">Select Target Node</option>
+                    </select>
+                    <button id="add-edge" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Add Edge</button>
+                </div>
+                <div id="edge-status" class="mt-2 text-gray-700"></div>
+            </div>
+        </div>
+
+        <!-- Export Network -->
+        <div class="mb-4">
+            <div class="collapsible-header bg-blue-500 text-white p-2 rounded">Export Network</div>
+            <div class="collapsible-content p-4 bg-white rounded shadow">
+                <h2 class="text-xl font-semibold mb-2">Export Network</h2>
+                <button id="export-network" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Download network.json</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Utility: Random choice from array
+        function randomChoice(arr) {
+            return arr[Math.floor(Math.random() * arr.length)];
+        }
+
+        // Graph class for network management
+        class NetworkGraph {
+            constructor() {
+                this.nodes = new Map();
+                this.edges = new Set();
+            }
+            addNode(id, attrs = {}) {
+                if (this.nodes.has(id)) throw new Error(`Node '${id}' already exists`);
+                this.nodes.set(id, { ...attrs, id });
+            }
+            updateNode(id, attrs) {
+                if (!this.nodes.has(id)) throw new Error(`Node '${id}' does not exist`);
+                this.nodes.set(id, { ...this.nodes.get(id), ...attrs });
+            }
+            deleteNode(id) {
+                if (!this.nodes.has(id)) throw new Error(`Node '${id}' does not exist`);
+                this.nodes.delete(id);
+                this.edges = new Set([...this.edges].filter(edge => {
+                    const e = JSON.parse(edge);
+                    return e.source !== id && e.target !== id;
+                }));
+            }
+            addEdge(source, target) {
+                if (!this.nodes.has(source)) throw new Error(`Source node '${source}' does not exist`);
+                if (!this.nodes.has(target)) throw new Error(`Target node '${target}' does not exist`);
+                if (source === target) throw new Error("Cannot create self-loop edge");
+                const edge = JSON.stringify({ source, target });
+                if (this.edges.has(edge)) throw new Error(`Edge from '${source}' to '${target}' already exists`);
+                this.edges.add(edge);
+            }
+            generateRandomNetwork(numNodes, numEdges, numVulns, vulnerabilities, subnets) {
+                this.nodes.clear();
+                this.edges.clear();
+                const types = ['server', 'workstation', 'router', 'firewall', ''];
+                // Add nodes
+                for (let i = 1; i <= numNodes; i++) {
+                    const id = `node${i}`;
+                    const subnet = randomChoice(subnets);
+                    const type = randomChoice(types);
+                    const vulnCount = Math.min(numVulns, vulnerabilities.length);
+                    const nodeVulns = [];
+                    const vulnPool = [...vulnerabilities];
+                    for (let j = 0; j < vulnCount; j++) {
+                        if (vulnPool.length === 0) break;
+                        const idx = Math.floor(Math.random() * vulnPool.length);
+                        nodeVulns.push(vulnPool.splice(idx, 1)[0]);
+                    }
+                    this.addNode(id, { subnet, vulnerabilities: nodeVulns, type });
+                }
+                // Add edges
+                const nodes = [...this.nodes.keys()];
+                const maxEdges = nodes.length * (nodes.length - 1); // Directed graph, no self-loops
+                numEdges = Math.min(numEdges, maxEdges);
+                let edgesAdded = 0;
+                const edgeSet = new Set();
+                while (edgesAdded < numEdges && edgeSet.size < maxEdges) {
+                    const source = randomChoice(nodes);
+                    const target = randomChoice(nodes);
+                    if (source === target) continue;
+                    const edge = JSON.stringify({ source, target });
+                    if (!edgeSet.has(edge)) {
+                        edgeSet.add(edge);
+                        this.addEdge(source, target);
+                        edgesAdded++;
+                    }
+                }
+            }
+            getNetworkData() {
+                const nodes = [...this.nodes.entries()].map(([id, attrs]) => ({
+                    data: { id, label: id, ...attrs }
+                }));
+                const edges = [...this.edges].map(edge => {
+                    const e = JSON.parse(edge);
+                    return { data: { source: e.source, target: e.target } };
+                });
+                return { nodes, edges };
+            }
+            toJSON() {
+                return {
+                    nodes: [...this.nodes.entries()].map(([id, attrs]) => ({
+                        id,
+                        subnet: attrs.subnet || 'unknown',
+                        vulnerabilities: attrs.vulnerabilities || [],
+                        type: attrs.type || ''
+                    })),
+                    edges: [...this.edges].map(edge => JSON.parse(edge))
+                };
+            }
+        }
+
+        // Initialize network and UI components
+        const network = new NetworkGraph();
+        let cy = null;
+        let vulnerabilities = ['CVE-2023-1234', 'CVE-2023-5678']; // Default vulnerabilities
+
+        function showError(id, message) {
+            const errorDiv = document.getElementById(id);
+            errorDiv.textContent = message;
+            errorDiv.classList.remove('hidden');
+            setTimeout(() => errorDiv.classList.add('hidden'), 5000);
+        }
+
+        function showSuccess(id, message) {
+            const successDiv = document.getElementById(id);
+            successDiv.textContent = message;
+            successDiv.classList.remove('hidden');
+            setTimeout(() => successDiv.classList.add('hidden'), 5000);
+        }
+
+        function showSpinner(id, show) {
+            document.getElementById(id).style.display = show ? 'block' : 'none';
+        }
+
+        async function loadVulnerabilityDatabase() {
+            showSpinner('vuln-spinner', true);
+            const file = document.getElementById('vuln-db').files[0];
+            if (!file) {
+                showError('vuln-error', 'Please upload a vulnerability database JSON file');
+                showSpinner('vuln-spinner', false);
+                return;
+            }
+            try {
+                const text = await file.text();
+                const data = JSON.parse(text);
+                if (!Object.keys(data).every(key => data[key].cvss_score !== undefined)) {
+                    throw new Error('Vulnerability database must include cvss_score for each vulnerability');
+                }
+                vulnerabilities = Object.keys(data);
+                updateVulnerabilitySelector();
+                showSuccess('vuln-success', 'Vulnerability database loaded successfully');
+            } catch (e) {
+                showError('vuln-error', `Invalid vulnerability database: ${e.message}`);
+            } finally {
+                showSpinner('vuln-spinner', false);
+            }
+        }
+
+        async function loadNetwork() {
+            showSpinner('load-spinner', true);
+            const file = document.getElementById('network-file').files[0];
+            if (!file) {
+                showError('file-error', 'Please upload a network JSON file');
+                showSpinner('load-spinner', false);
+                return;
+            }
+            try {
+                const text = await file.text();
+                const data = JSON.parse(text);
+                if (!data.nodes || !Array.isArray(data.nodes) || !data.edges || !Array.isArray(data.edges)) {
+                    throw new Error("Network JSON must contain 'nodes' and 'edges' arrays");
+                }
+                network.nodes.clear();
+                network.edges.clear();
+                for (const node of data.nodes) {
+                    if (!node.id) throw new Error("Each node must have an 'id' field");
+                    network.addNode(node.id, {
+                        subnet: node.subnet || 'unknown',
+                        vulnerabilities: node.vulnerabilities || [],
+                        type: node.type || ''
+                    });
+                }
+                for (const edge of data.edges) {
+                    if (!edge.source || !edge.target) throw new Error("Each edge must have 'source' and 'target' fields");
+                    network.addEdge(edge.source, edge.target);
+                }
+                updateUI();
+                showSuccess('file-success', 'Network loaded successfully');
+            } catch (e) {
+                showError('file-error', `Invalid network JSON: ${e.message}`);
+            } finally {
+                showSpinner('load-spinner', false);
+            }
+        }
+
+        function generateNetwork() {
+            showSpinner('generate-spinner', true);
+            const numNodes = parseInt(document.getElementById('num-nodes').value) || 0;
+            const numEdges = parseInt(document.getElementById('num-edges').value) || 0;
+            const numVulns = parseInt(document.getElementById('num-vulns').value) || 0;
+            const subnetInput = document.getElementById('subnets').value.trim();
+            const subnets = subnetInput.split(',').map(s => s.trim()).filter(s => s);
+            if (numNodes < 1) {
+                showError('generate-status', 'Number of nodes must be at least 1');
+                showSpinner('generate-spinner', false);
+                return;
+            }
+            if (numEdges < 0) {
+                showError('generate-status', 'Number of edges cannot be negative');
+                showSpinner('generate-spinner', false);
+                return;
+            }
+            if (numVulns < 0) {
+                showError('generate-status', 'Number of vulnerabilities cannot be negative');
+                showSpinner('generate-spinner', false);
+                return;
+            }
+            if (subnets.length === 0) {
+                showError('generate-status', 'At least one subnet must be provided');
+                showSpinner('generate-spinner', false);
+                return;
+            }
+            try {
+                network.generateRandomNetwork(numNodes, numEdges, numVulns, vulnerabilities, subnets);
+                updateUI();
+                document.getElementById('generate-status').textContent = `Generated network with ${numNodes} nodes, ${numEdges} edges, up to ${numVulns} vulnerabilities per node, and subnets: ${subnets.join(', ')}`;
+            } catch (e) {
+                showError('generate-status', e.message);
+            } finally {
+                showSpinner('generate-spinner', false);
+            }
+        }
+
+        function updateNetworkGraph() {
+            const { nodes, edges } = network.getNetworkData();
+            if (cy) cy.destroy();
+            cy = cytoscape({
+                container: document.getElementById('network-graph'),
+                elements: [...nodes, ...edges],
+                style: [
+                    {
+                        selector: 'node',
+                        style: {
+                            'label': 'data(label)',
+                            'background-color': '#0074D9',
+                            'width': 20,
+                            'height': 20
+                        }
+                    },
+                    { selector: 'edge', style: { 'width': 2, 'line-color': '#ccc', 'curve-style': 'bezier' } }
+                ],
+                layout: { name: 'cose', animate: true }
+            });
+            cy.on('mouseover', 'node', function (evt) {
+                const node = evt.target;
+                cy.nodes().style({ 'opacity': 0.3 });
+                node.style({ 'opacity': 1 });
+                const div = document.createElement('div');
+                div.className = 'absolute bg-white p-2 border shadow text-sm';
+                div.style.left = `${evt.renderedPosition.x + 10}px`;
+                div.style.top = `${evt.renderedPosition.y + 10}px`;
+                div.innerHTML = `Node: ${node.data('id')}<br>Subnet: ${node.data('subnet') || 'unknown'}<br>Vulnerabilities: ${node.data('vulnerabilities')?.join(', ') || 'None'}<br>Type: ${node.data('type') || 'N/A'}`;
+                document.getElementById('network-graph').appendChild(div);
+                node.data('tooltip', div);
+            });
+            cy.on('mouseout', 'node', function (evt) {
+                cy.nodes().style({ 'opacity': 1 });
+                const div = evt.target.data('tooltip');
+                if (div) div.remove();
+            });
+        }
+
+        function updateNodeSelector() {
+            const nodeSelector = document.getElementById('node-selector');
+            nodeSelector.innerHTML = '<option value="">Select Node to Edit or Add New</option>' + 
+                [...network.nodes.keys()].map(id => `<option value="${id}">${id}</option>`).join('');
+        }
+
+        function updateVulnerabilitySelector() {
+            const vulnSelector = document.getElementById('node-vulnerabilities');
+            vulnSelector.innerHTML = vulnerabilities.map(v => `<option value="${v}">${v}</option>`).join('');
+        }
+
+        function updateEdgeSelectors() {
+            const sourceSelector = document.getElementById('edge-source');
+            const targetSelector = document.getElementById('edge-target');
+            const nodeOptions = '<option value="">Select Node</option>' + 
+                [...network.nodes.keys()].map(id => `<option value="${id}">${id}</option>`).join('');
+            sourceSelector.innerHTML = nodeOptions;
+            targetSelector.innerHTML = nodeOptions;
+        }
+
+        function updateUI() {
+            updateNetworkGraph();
+            updateNodeSelector();
+            updateVulnerabilitySelector();
+            updateEdgeSelectors();
+            document.getElementById('node-id').value = '';
+            document.getElementById('node-subnet').value = '';
+            document.getElementById('node-vulnerabilities').value = [];
+            document.getElementById('node-type').value = '';
+            document.getElementById('node-status').textContent = '';
+            document.getElementById('edge-status').textContent = '';
+        }
+
+        document.getElementById('load-vuln-db').addEventListener('click', loadVulnerabilityDatabase);
+
+        document.getElementById('load-network').addEventListener('click', loadNetwork);
+
+        document.getElementById('generate-network').addEventListener('click', generateNetwork);
+
+        document.getElementById('node-selector').addEventListener('change', () => {
+            const nodeId = document.getElementById('node-selector').value;
+            if (nodeId) {
+                const node = network.nodes.get(nodeId);
+                document.getElementById('node-id').value = nodeId;
+                document.getElementById('node-subnet').value = node.subnet || '';
+                document.getElementById('node-vulnerabilities').value = node.vulnerabilities || [];
+                document.getElementById('node-type').value = node.type || '';
+            } else {
+                document.getElementById('node-id').value = '';
+                document.getElementById('node-subnet').value = '';
+                document.getElementById('node-vulnerabilities').value = [];
+                document.getElementById('node-type').value = '';
+            }
+        });
+
+        document.getElementById('add-node').addEventListener('click', () => {
+            const nodeId = document.getElementById('node-id').value.trim();
+            const subnet = document.getElementById('node-subnet').value.trim() || 'unknown';
+            const vulnerabilities = Array.from(document.getElementById('node-vulnerabilities').selectedOptions).map(opt => opt.value);
+            const type = document.getElementById('node-type').value.trim() || '';
+            if (!nodeId) {
+                document.getElementById('node-status').textContent = 'Node ID is required';
+                return;
+            }
+            try {
+                if (network.nodes.has(nodeId)) {
+                    network.updateNode(nodeId, { subnet, vulnerabilities, type });
+                    document.getElementById('node-status').textContent = `Node '${nodeId}' updated`;
+                } else {
+                    network.addNode(nodeId, { subnet, vulnerabilities, type });
+                    document.getElementById('node-status').textContent = `Node '${nodeId}' added`;
+                }
+                updateUI();
+            } catch (e) {
+                document.getElementById('node-status').textContent = e.message;
+            }
+        });
+
+        document.getElementById('delete-node').addEventListener('click', () => {
+            const nodeId = document.getElementById('node-selector').value;
+            if (!nodeId) {
+                document.getElementById('node-status').textContent = 'Select a node to delete';
+                return;
+            }
+            try {
+                network.deleteNode(nodeId);
+                document.getElementById('node-status').textContent = `Node '${nodeId}' deleted`;
+                updateUI();
+            } catch (e) {
+                document.getElementById('node-status').textContent = e.message;
+            }
+        });
+
+        document.getElementById('add-edge').addEventListener('click', () => {
+            const source = document.getElementById('edge-source').value;
+            const target = document.getElementById('edge-target').value;
+            if (!source || !target) {
+                document.getElementById('edge-status').textContent = 'Select source and target nodes';
+                return;
+            }
+            try {
+                network.addEdge(source, target);
+                document.getElementById('edge-status').textContent = `Edge from '${source}' to '${target}' added`;
+                updateUI();
+            } catch (e) {
+                document.getElementById('edge-status').textContent = e.message;
+            }
+        });
+
+        document.getElementById('export-network').addEventListener('click', () => {
+            const json = network.toJSON();
+            const blob = new Blob([JSON.stringify(json, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `network_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        });
+
+        // Collapsible sections
+        document.querySelectorAll('.collapsible-header').forEach(header => {
+            header.addEventListener('click', () => {
+                const content = header.nextElementSibling;
+                content.classList.toggle('active');
+            });
+        });
+
+        // Initialize UI
+        updateUI();
+    </script>
+</body>
+</html>
